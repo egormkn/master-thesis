@@ -1,0 +1,48 @@
+name: Build PDF
+on: [push, workflow_dispatch]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: texlive/texlive:latest
+    steps:
+      - name: Checkout ${{ github.repository }}
+        uses: actions/checkout@v2
+        with:
+          submodules: true
+
+      - name: Install fonts
+        run: |
+          echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | debconf-set-selections
+          sed -i -e "s#deb http://.*debian\.org/.* main#\0 contrib non-free#g" /etc/apt/sources.list
+          apt-get update
+          apt-get install -qy ttf-mscorefonts-installer fonts-liberation
+          rm -rf /var/lib/apt/lists/*
+          rm -rf /var/cache/apt/
+          find /usr/local/texlive/ -name 'texlive-fontconfig.conf' -exec ln -s {} /etc/fonts/conf.d/09-texlive-fonts.conf \;
+          fc-cache -fv
+
+      - name: Build PDF documents with latexmk
+        run: latexmk -outdir="./output"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: pdf
+          path: output/*.pdf
+
+  deploy:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build]
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: pdf
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: "*.pdf"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
